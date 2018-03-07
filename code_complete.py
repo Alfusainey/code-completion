@@ -63,6 +63,25 @@ def build_dataset(words):
         dictionary[word] = len(dictionary)
     reverse_dictionary = dict(zip(dictionary.values(), dictionary.keys()))
     return dictionary, reverse_dictionary
+dictionary, reverse_dictionary = build_dataset(training_data_token_array)
+vocab_size = len(dictionary)
+
+test_data_tokens = "while (i <".split(" ")
+n_input_test = len(test_data_tokens)
+test_data = [dictionary[str(token)] for token in test_data_tokens]
+test_data = np.reshape(np.array(test_data), [-1, n_input_test, 1])
+
+# Parameters
+learning_rate = 0.001
+training_iters = 5000
+display_step = 1000
+
+# sequence_length
+n_input = n_input_test
+
+# units in RNN cell
+n_hidden = 512
+
 def vanilla_RNN(x, weights, biases):
     x = tf.reshape(x, [-1, n_input])    
     x = tf.split(x,n_input,1)    
@@ -81,26 +100,60 @@ def vanilla_LSTM(x, weights, biases):
     outputs, states = rnn.static_rnn(rnn_cell, x, dtype=tf.float32)    
     return tf.matmul(outputs[-1], weights['out']) + biases['out']
 
-dictionary, reverse_dictionary = build_dataset(training_data_token_array)
-vocab_size = len(dictionary)
-print(vocab_size)
+def train_network(session, x, y):
+    print("train_network")
+    step = 0
+    offset = random.randint(0,n_input+1)
+    end_offset = n_input + 1
+    acc_total = 0
+    loss_total = 0
+    
+    writer.add_graph(session.graph)
+    
+    while step < training_iters:        
+        # Generate a minibatch. Add some randomness on selection process.
+        if offset > (len(training_data_token_array)-end_offset):
+            offset = random.randint(0, n_input+1)        
+        
+        input_data = [ [dictionary[ str(training_data_token_array[i])]] for i in range(offset, offset+n_input) ]
+        input_data = np.reshape(np.array(input_data), [-1, n_input, 1])
+    
+        target_onehot = np.zeros([vocab_size], dtype=float)
+        target_onehot[dictionary[str(training_data_token_array[offset+n_input])]] = 1.0
+        target_onehot = np.reshape(target_onehot,[1,-1])
+    
+        _, acc, loss, onehot_pred = session.run([optimizer, accuracy, cost, prediction], feed_dict={x: input_data, y: target_onehot})
+        loss_total += loss
+        acc_total += acc
+        
+        if (step+1) % display_step == 0:
+            #print("Iteration= " + str(step+1) + ", Average Loss= " + "{:.6f}".format(loss_total/display_step) + ", Average Accuracy= " + "{:.2f}%".format(100*acc_total/display_step))
+            acc_total = 0
+            loss_total = 0
+            input_context = [training_data_token_array[i] for i in range(offset, offset + n_input)]
+            target_tokens = training_data_token_array[offset + n_input]
+            predicted_token = reverse_dictionary[int(tf.argmax(onehot_pred, 1).eval())]
+            print("%s - [%s] vs [%s]" % (input_context, target_tokens, predicted_token))
+        step += 1
+        offset += (n_input+1)
+    print("Training Finished!")
+    print("Elapsed time: ", elapsed(time.time() - start_time))
 
-test_data_tokens = "while (i <".split(" ")
-n_input_test = len(test_data_tokens)
-test_data = [dictionary[str(token)] for token in test_data_tokens]
-test_data = np.reshape(np.array(test_data), [-1, n_input_test, 1])
 
-# Parameters
-learning_rate = 0.001
-training_iters = 1000
-display_step = 5000
+# Test the input
+def test_network(session, x, input_data):    
+    onehot_pred = session.run(prediction, feed_dict={x: input_data})        
+    top_k = tf.nn.top_k(onehot_pred, 5)
+    top_k = session.run(top_k).values    
+    predicted_tokens = []
+    for v in top_k.ravel():
+        try:
+            predicted_tokens.append(reverse_dictionary[int(v)])
+        except KeyError:
+            continue
+    print(predicted_tokens)
 
-# sequence_length
-n_input = n_input_test
-
-# units in RNN cell
-n_hidden = 512
-
+# Build Comptutational Graph
 with tf.Graph().as_default():
     # tf Graph input
     x = tf.placeholder("float", [None, n_input, 1])
@@ -124,56 +177,10 @@ with tf.Graph().as_default():
     correct_pred = tf.equal(tf.argmax(prediction,1), tf.argmax(y,1))
     accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
     
-    # Initializing the variables
-    init = tf.global_variables_initializer()
-
     # Launch the Session
     with tf.Session() as session:
-        session.run(init)
-        step = 0
-        offset = random.randint(0,n_input+1)
-        end_offset = n_input + 1
-        acc_total = 0
-        loss_total = 0
-
-        writer.add_graph(session.graph)
-
-        while step < training_iters:
-            # Generate a minibatch. Add some randomness on selection process.
-            if offset > (len(training_data_token_array)-end_offset):
-                offset = random.randint(0, n_input+1)
-
-            input_data = [ [dictionary[ str(training_data_token_array[i])]] for i in range(offset, offset+n_input) ]
-            input_data = np.reshape(np.array(input_data), [-1, n_input, 1])
-
-            target_onehot = np.zeros([vocab_size], dtype=float)
-            target_onehot[dictionary[str(training_data_token_array[offset+n_input])]] = 1.0
-            target_onehot = np.reshape(target_onehot,[1,-1])
-
-            _, acc, loss, onehot_pred = session.run([optimizer, accuracy, cost, prediction], \
-                                                    feed_dict={x: input_data, y: target_onehot})
-            loss_total += loss
-            acc_total += acc
-            if (step+1) % display_step == 0:
-                print("Iteration= " + str(step+1) + ", Average Loss= " + \
-                      "{:.6f}".format(loss_total/display_step) + ", Average Accuracy= " + \
-                      "{:.2f}%".format(100*acc_total/display_step))
-                acc_total = 0
-                loss_total = 0
-                input_context = [training_data_token_array[i] for i in range(offset, offset + n_input)]
-                target_tokens = training_data_token_array[offset + n_input]
-                predicted_token = reverse_dictionary[int(tf.argmax(onehot_pred, 1).eval())]
-                print("%s - [%s] vs [%s]" % (input_context, target_tokens, predicted_token))
-            step += 1
-            offset += (n_input+1)
-        print("Training Finished!")
-        print("Elapsed time: ", elapsed(time.time() - start_time))
+        session.run(tf.global_variables_initializer())
+        train_network(session, x, y)
+        print("Testing prediction")
+        test_network(session, x, test_data)
         
-        # Test the input
-        onehot_pred = session.run(prediction, feed_dict={x: test_data})        
-        top_k = tf.nn.top_k(onehot_pred, 5)
-        top_k = session.run(top_k).values    
-        predicted_tokens = []    
-        for v in top_k.ravel():
-            predicted_tokens.append(reverse_dictionary[int(v)])
-        print(predicted_tokens)
