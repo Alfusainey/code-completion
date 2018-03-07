@@ -54,7 +54,7 @@ class CodeCompleteGUI():
         output_box.config(state="normal")
         output_box.delete("1.0", END)
         
-        dictionary.build() # incase file is modified
+        dictionary.build() # in case file is modified
         key = input_box.get("1.0", "end-1c")
         for value in self.dictionary.get(key):
             output_box.insert(END, value+'\n')        
