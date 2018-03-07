@@ -1,0 +1,9 @@
+while (i <	<INTEGER>) {\n // todo \n}
+for (var i = 0;	i < <INTEGER>; i++) { }
+for (var i = 0; i < 10;	i++) { }
+while (i < 10)	{ }
+console.	log()
+console.	assert()
+console.	clear()
+console.	count()
+console.	info()
