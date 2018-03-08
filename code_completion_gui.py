@@ -1,13 +1,12 @@
 import tkinter as tk
 from tkinter.constants import END
 import csv
+from code_complete import *
 #from tkinter import font
 
 class CodeCompleteGUI():
-    def __init__(self, root, dictionary):
-        self.root = root
-        self.dictionary = dictionary
-           
+    def __init__(self, root):
+        self.root = root        
         self.root.title('Code Completion Project')
         self.root.geometry('{}x{}'.format(890, 450))
         
@@ -46,35 +45,46 @@ class CodeCompleteGUI():
         output_textbox.grid(row=0, column=1)
         output_textbox.config(font=("Courier", 20))
         
-        button = tk.Button(top_frame, text='Auto complete', fg="red", font="Courier: 13")
-        button.grid(row=1, column=5)
-        button.bind('<Button-1>', lambda event, input_box=input_tbox, output_box=output_textbox: self._complete_label(event, input_box, output_box))
+        self.button = tk.Button(top_frame, text='Auto complete', fg="red", font="Courier: 13")
+        self.button.grid(row=1, column=5)
+        self.button.bind('<Button-1>', lambda event, input_box=input_tbox, output_box=output_textbox: self._complete_label(event, input_box, output_box))
 
     def _complete_label(self, event, input_box, output_box):
         output_box.config(state="normal")
         output_box.delete("1.0", END)
+                
+        self.input_value = input_box.get("1.0", "end-1c")
         
-        dictionary.build() # in case file is modified
-        key = input_box.get("1.0", "end-1c")
-        for value in self.dictionary.get(key):
-            output_box.insert(END, value+'\n')        
+        build_graph(self)
+                
+        for value in self.get_predictions():
+            output_box.insert(END, value+'\n')
         output_box.config(state="disabled")
-
+        
+    def setOutput(self, results):
+        self.predicted_results = results
+        
+    def get_predictions(self):
+        return self.predicted_results
+    
+    def get_input(self):
+        return self.input_value
+    
     def mainloop(self):
         self.root.mainloop()
-        
+    
+# Not used anywhere in the code
 class BuildDictionary():
     def __init__(self, filename):
         self.filename = filename
         self.build()
         
-    def build(self):        
+    def build(self):
         with open(self.filename, 'r') as f:
             reader = csv.reader(f, delimiter='\t')
             self.dictionary = {}
             for key, value in reader:
-                self.dictionary.setdefault(key,  []).append(value)      
-                print(key)                          
+                self.dictionary.setdefault(key,  []).append(value)
     def get(self, key):
         try:
             return self.dictionary[key]
@@ -82,9 +92,7 @@ class BuildDictionary():
             return "Unrecognized input  "+key
     
 if __name__=='__main__':
-    dictionary = BuildDictionary("train_gui.csv")
-    
     root = tk.Tk()
-    cc = CodeCompleteGUI(root, dictionary)
-    cc.mainloop()
+    cc = CodeCompleteGUI(root)
     
+    cc.mainloop()

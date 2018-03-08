@@ -11,9 +11,6 @@ from tensorflow.contrib import rnn
 import random
 import collections
 import time
-from scipy import spatial
-import matplotlib.pyplot as plt
-
 
 LOG_DIR = '/tmp/code_complete'
 writer = tf.summary.FileWriter(LOG_DIR)
@@ -66,21 +63,17 @@ def build_dataset(words):
 dictionary, reverse_dictionary = build_dataset(training_data_token_array)
 vocab_size = len(dictionary)
 
-test_data_tokens = "while (i <".split(" ")
-n_input_test = len(test_data_tokens)
-test_data = [dictionary[str(token)] for token in test_data_tokens]
-test_data = np.reshape(np.array(test_data), [-1, n_input_test, 1])
-
 # Parameters
 learning_rate = 0.001
 training_iters = 5000
 display_step = 1000
 
 # sequence_length
-n_input = n_input_test
+n_input = 4
 
 # units in RNN cell
 n_hidden = 512
+
 
 def vanilla_RNN(x, weights, biases):
     x = tf.reshape(x, [-1, n_input])    
@@ -100,15 +93,16 @@ def vanilla_LSTM(x, weights, biases):
     outputs, states = rnn.static_rnn(rnn_cell, x, dtype=tf.float32)    
     return tf.matmul(outputs[-1], weights['out']) + biases['out']
 
-def train_network(session, x, y):
-    print("train_network")
+def train_network(session, prediction, x, y, cost, optimizer, accuracy):
+            
+    # Initialize some variables
     step = 0
     offset = random.randint(0,n_input+1)
     end_offset = n_input + 1
     acc_total = 0
     loss_total = 0
     
-    writer.add_graph(session.graph)
+    #writer.add_graph(session.graph)
     
     while step < training_iters:        
         # Generate a minibatch. Add some randomness on selection process.
@@ -127,60 +121,88 @@ def train_network(session, x, y):
         acc_total += acc
         
         if (step+1) % display_step == 0:
-            #print("Iteration= " + str(step+1) + ", Average Loss= " + "{:.6f}".format(loss_total/display_step) + ", Average Accuracy= " + "{:.2f}%".format(100*acc_total/display_step))
+            print("Iteration= " + str(step+1) + ", Average Loss= " + "{:.6f}".format(loss_total/display_step) + ", Average Accuracy= " + "{:.2f}%".format(100*acc_total/display_step))
             acc_total = 0
             loss_total = 0
             input_context = [training_data_token_array[i] for i in range(offset, offset + n_input)]
             target_tokens = training_data_token_array[offset + n_input]
-            predicted_token = reverse_dictionary[int(tf.argmax(onehot_pred, 1).eval())]
-            print("%s - [%s] vs [%s]" % (input_context, target_tokens, predicted_token))
+            predicted_tokens = top_k(session, onehot_pred)
+            print("%s - [%s] vs [%s]" % (input_context, target_tokens, predicted_tokens))
         step += 1
         offset += (n_input+1)
     print("Training Finished!")
     print("Elapsed time: ", elapsed(time.time() - start_time))
 
-
-# Test the input
-def test_network(session, x, input_data):    
-    onehot_pred = session.run(prediction, feed_dict={x: input_data})        
-    top_k = tf.nn.top_k(onehot_pred, 5)
-    top_k = session.run(top_k).values    
-    predicted_tokens = []
+# return the top_k predictions of the input
+def top_k(session, raw_predictions, k=5):
+    predictions = []
+    top_k = tf.nn.top_k(raw_predictions, k)
+    top_k = session.run(top_k).values
     for v in top_k.ravel():
         try:
-            predicted_tokens.append(reverse_dictionary[int(v)])
+            predictions.append(reverse_dictionary[int(v)])
+        except KeyError: # unknown token
+            continue
+    return predictions
+
+# Test the input
+def test_network(session, input_data, x, prediction):
+    test_data_tokens = input_data.split(" ") #CodeCompleteGUI.get_input() #"while (i <".split(" ")
+    n_input_test = len(test_data_tokens)    
+    test_data = []    
+    for token in test_data_tokens:
+        try:
+            test_data.append(dictionary[str(token)])
         except KeyError:
             continue
-    print(predicted_tokens)
-
+    test_data = np.reshape(np.array(test_data), [-1, n_input_test, 1])    
+    onehot_pred = session.run(prediction, feed_dict={x: test_data})            
+    return top_k(session, onehot_pred) #gui.setOutput(predicted_tokens)
+def save_model(session, path):
+    saver = tf.train.Saver(max_to_keep=1)
+    savePath = saver.save(session, path)
+    return savePath
+def restore_model(session, path, feed_dict):
+    saver = tf.train.import_meta_graph(path + '/my_model.ckpt.meta')
+    saver.restor(session, path + 'my_model.ckpt.meta')
+    onehot_pred = session.run('prediction:0', feed_dict=feed_dict)
+    
 # Build Comptutational Graph
-with tf.Graph().as_default():
-    # tf Graph input
-    x = tf.placeholder("float", [None, n_input, 1])
-    y = tf.placeholder("float", [None, vocab_size])
+def build_graph(cc):
+    
+    with tf.Graph().as_default():
+        # tf Graph input
+        # Placeholder definitions
+        x = tf.placeholder("float", [None, n_input, 1])
+        y = tf.placeholder("float", [None, vocab_size])
 
-    # RNN output node weights and biases
-    weights = {
-        'out': tf.Variable(tf.random_normal([n_hidden, vocab_size]))
-    }
-    biases = {
-        'out': tf.Variable(tf.random_normal([vocab_size]))
-    }        
-    
-    prediction = vanilla_LSTM(x, weights, biases)
-    
-    # Loss and optimizer
-    cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=prediction, labels=y))
-    optimizer = tf.train.RMSPropOptimizer(learning_rate=learning_rate).minimize(cost)
-    
-    # Model evaluation
-    correct_pred = tf.equal(tf.argmax(prediction,1), tf.argmax(y,1))
-    accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
-    
-    # Launch the Session
-    with tf.Session() as session:
-        session.run(tf.global_variables_initializer())
-        train_network(session, x, y)
-        print("Testing prediction")
-        test_network(session, x, test_data)
+        # RNN output node weights and biases
+        weights = {
+            'out': tf.Variable(tf.random_normal([n_hidden, vocab_size]))
+        }
+        biases = {
+            'out': tf.Variable(tf.random_normal([vocab_size]))
+        }        
         
+        prediction = vanilla_LSTM(x, weights, biases)
+        
+        # Loss and optimizer
+        cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=prediction, labels=y))
+        optimizer = tf.train.RMSPropOptimizer(learning_rate=learning_rate).minimize(cost)
+        
+        # Model evaluation
+        correct_pred = tf.equal(tf.argmax(prediction,1), tf.argmax(y,1))    
+        accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+
+        # Launch the Session
+        
+        with tf.Session() as session:
+            session.run(tf.global_variables_initializer())
+            train_network(session, prediction, x, y, cost, optimizer, accuracy)
+            #print("Save the model")  
+            #save_model(session, '/home/alfu/Desktop/code_complete_model.ckpt')
+            results = test_network(session, cc.get_input(), x, prediction)
+            cc.setOutput(results)
+            
+if __name__ == '__main__':
+    build_graph()
