@@ -55,41 +55,21 @@ class CodeCompleteGUI():
                 
         self.input_value = input_box.get("1.0", "end-1c")
         
-        build_graph(self)
-                
-        for value in self.get_predictions():
+        for value in self.get_predictions(self.input_value):
             output_box.insert(END, value+'\n')
         output_box.config(state="disabled")
         
     def setOutput(self, results):
         self.predicted_results = results
         
-    def get_predictions(self):
-        return self.predicted_results
+    def get_predictions(self, input_data):
+        return predict(input_data)
     
     def get_input(self):
         return self.input_value
     
     def mainloop(self):
         self.root.mainloop()
-    
-# Not used anywhere in the code
-class BuildDictionary():
-    def __init__(self, filename):
-        self.filename = filename
-        self.build()
-        
-    def build(self):
-        with open(self.filename, 'r') as f:
-            reader = csv.reader(f, delimiter='\t')
-            self.dictionary = {}
-            for key, value in reader:
-                self.dictionary.setdefault(key,  []).append(value)
-    def get(self, key):
-        try:
-            return self.dictionary[key]
-        except KeyError:
-            return "Unrecognized input  "+key
     
 if __name__=='__main__':
     root = tk.Tk()

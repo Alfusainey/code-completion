@@ -80,7 +80,7 @@ def vanilla_RNN(x, weights, biases):
     x = tf.split(x,n_input,1)    
     rnn_cell = rnn.BasicRNNCell(n_hidden)    
     outputs, states = rnn.static_rnn(rnn_cell, x, dtype=tf.float32)
-    return tf.matmul(outputs[-1], weights['out']) + biases['out']
+    return tf.matmul(outputs[-1], weights) + biases
     
 def vanilla_LSTM(x, weights, biases):
     # reshape to [1, n_input]
@@ -91,7 +91,7 @@ def vanilla_LSTM(x, weights, biases):
     rnn_cell = rnn.BasicLSTMCell(n_hidden)
     # generate prediction
     outputs, states = rnn.static_rnn(rnn_cell, x, dtype=tf.float32)    
-    return tf.matmul(outputs[-1], weights['out']) + biases['out']
+    return tf.matmul(outputs[-1], weights) + biases
 
 def train_network(session, prediction, x, y, cost, optimizer, accuracy):
             
@@ -121,7 +121,7 @@ def train_network(session, prediction, x, y, cost, optimizer, accuracy):
         acc_total += acc
         
         if (step+1) % display_step == 0:
-            print("Iteration= " + str(step+1) + ", Average Loss= " + "{:.6f}".format(loss_total/display_step) + ", Average Accuracy= " + "{:.2f}%".format(100*acc_total/display_step))
+            #print("Iteration= " + str(step+1) + ", Average Loss= " + "{:.6f}".format(loss_total/display_step) + ", Average Accuracy= " + "{:.2f}%".format(100*acc_total/display_step))
             acc_total = 0
             loss_total = 0
             input_context = [training_data_token_array[i] for i in range(offset, offset + n_input)]
@@ -130,6 +130,7 @@ def train_network(session, prediction, x, y, cost, optimizer, accuracy):
             print("%s - [%s] vs [%s]" % (input_context, target_tokens, predicted_tokens))
         step += 1
         offset += (n_input+1)
+    #p = save_model(session, "/home/alfu/Desktop/savedModel")   
     print("Training Finished!")
     print("Elapsed time: ", elapsed(time.time() - start_time))
 
@@ -145,8 +146,7 @@ def top_k(session, raw_predictions, k=5):
             continue
     return predictions
 
-# Test the input
-def test_network(session, input_data, x, prediction):
+def do_prediction(session, input_data, x, prediction):
     test_data_tokens = input_data.split(" ") #CodeCompleteGUI.get_input() #"while (i <".split(" ")
     n_input_test = len(test_data_tokens)    
     test_data = []    
@@ -155,36 +155,45 @@ def test_network(session, input_data, x, prediction):
             test_data.append(dictionary[str(token)])
         except KeyError:
             continue
-    test_data = np.reshape(np.array(test_data), [-1, n_input_test, 1])    
+    test_data = np.reshape(np.array(test_data), [-1, n_input_test, 1])
+    session.run(tf.global_variables_initializer())
     onehot_pred = session.run(prediction, feed_dict={x: test_data})            
-    return top_k(session, onehot_pred) #gui.setOutput(predicted_tokens)
+    return top_k(session, onehot_pred)
+
+def predict(input_data):
+    path = "/home/alfu/Desktop/savedModel/" # TODO: Make this configurable    
+    with tf.Session() as session:
+        saver = tf.train.import_meta_graph(path + "code_complete_model.meta")
+        saver.restore(session, tf.train.latest_checkpoint(path))        
+        
+        graph = tf.get_default_graph()        
+        weights = graph.get_tensor_by_name('weights:0')
+        biases = graph.get_tensor_by_name("biases:0")
+        x = graph.get_tensor_by_name("x:0")
+        prediction = vanilla_LSTM(x, weights, biases)
+        return do_prediction(session, input_data, x, prediction)
+
 def save_model(session, path):
-    saver = tf.train.Saver(max_to_keep=1)
+    saver = tf.train.Saver()
     savePath = saver.save(session, path)
-    return savePath
-def restore_model(session, path, feed_dict):
-    saver = tf.train.import_meta_graph(path + '/my_model.ckpt.meta')
-    saver.restor(session, path + 'my_model.ckpt.meta')
-    onehot_pred = session.run('prediction:0', feed_dict=feed_dict)
+    return savePath    
     
 # Build Comptutational Graph
-def build_graph(cc):
-    
+def build_graph():
     with tf.Graph().as_default():
         # tf Graph input
-        # Placeholder definitions
-        x = tf.placeholder("float", [None, n_input, 1])
-        y = tf.placeholder("float", [None, vocab_size])
+        x = tf.placeholder("float", [None, n_input, 1], name="x")
+        y = tf.placeholder("float", [None, vocab_size], name = "y")
 
         # RNN output node weights and biases
         weights = {
-            'out': tf.Variable(tf.random_normal([n_hidden, vocab_size]))
+            'out': tf.Variable(tf.random_normal([n_hidden, vocab_size]),  name="weights")
         }
         biases = {
-            'out': tf.Variable(tf.random_normal([vocab_size]))
+            'out': tf.Variable(tf.random_normal([vocab_size]), name = "biases")
         }        
         
-        prediction = vanilla_LSTM(x, weights, biases)
+        prediction = vanilla_LSTM(x, weights['out'], biases['out'])
         
         # Loss and optimizer
         cost = tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(logits=prediction, labels=y))
@@ -194,15 +203,17 @@ def build_graph(cc):
         correct_pred = tf.equal(tf.argmax(prediction,1), tf.argmax(y,1))    
         accuracy = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
 
-        # Launch the Session
-        
+        # Launch the Session        
         with tf.Session() as session:
             session.run(tf.global_variables_initializer())
             train_network(session, prediction, x, y, cost, optimizer, accuracy)
-            #print("Save the model")  
-            #save_model(session, '/home/alfu/Desktop/code_complete_model.ckpt')
-            results = test_network(session, cc.get_input(), x, prediction)
-            cc.setOutput(results)
+            print("Saving the model")  
+            p = save_model(session, '/home/alfu/Desktop/savedModel/code_complete_model')
+            print("Model save in the file: "+p)
+            #results = test_network(session, cc.get_input())
+            #cc.setOutput(results)
             
 if __name__ == '__main__':
+    # Run this file to train the network
     build_graph()
+    
