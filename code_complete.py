@@ -74,7 +74,6 @@ n_input = 4
 # units in RNN cell
 n_hidden = 512
 
-
 def vanilla_RNN(x, weights, biases):
     x = tf.reshape(x, [-1, n_input])    
     x = tf.split(x,n_input,1)    
@@ -161,8 +160,9 @@ def do_prediction(session, input_data, x, prediction):
     return top_k(session, onehot_pred)
 
 def predict(input_data):
-    path = "/home/alfu/Desktop/savedModel/" # TODO: Make this configurable    
-    with tf.Session() as session:
+    path = "/home/alfu/Desktop/savedModel/" # TODO: Make this configurable
+    tf.reset_default_graph()    
+    with tf.Session() as session:        
         saver = tf.train.import_meta_graph(path + "code_complete_model.meta")
         saver.restore(session, tf.train.latest_checkpoint(path))        
         
